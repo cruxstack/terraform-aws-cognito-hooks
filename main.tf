@@ -3,7 +3,7 @@ locals {
   enabled         = module.this.enabled
   aws_account_id  = one(data.aws_caller_identity.current.*.account_id)
   aws_region_name = one(data.aws_region.current.*.region)
-  aws_partition   = one(data.aws_partition.current.*.id)
+  aws_partition   = one(data.aws_partition.current.*.partition)
 
   presignup_hook_enabled        = var.presignup_hook_enabled
   presignup_hook_debug_enabled  = var.presignup_hook_debug_enabled
