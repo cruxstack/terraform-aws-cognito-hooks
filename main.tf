@@ -55,11 +55,16 @@ resource "aws_iam_role" "this" {
   tags = module.cognito_hook_label.tags
 }
 
-resource "aws_iam_role_policy_attachment" "ssm_managed_instance_core" {
+resource "aws_iam_role_policy_attachment" "lambda_execution" {
   count = module.this.enabled ? 1 : 0
 
   role       = aws_iam_role.this[0].name
   policy_arn = "arn:${local.aws_partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+moved {
+  from = aws_iam_role_policy_attachment.ssm_managed_instance_core
+  to   = aws_iam_role_policy_attachment.lambda_execution
 }
 
 # =========================================================== presignup-hook ===
