@@ -90,21 +90,40 @@ module "presignup_hook_label" {
   context    = module.cognito_hook_label.context
 }
 
-module "presignup_hook_code" {
-  source  = "cruxstack/artifact-packager/docker"
-  version = "1.3.6"
-  count   = local.presignup_hook_enabled ? 1 : 0
+# transitional: forget pre-buildkit module.presignup_hook_code from state on upgrade
+removed {
+  from = module.presignup_hook_code
 
-  artifact_src_path    = "/tmp/package.zip"
-  docker_build_context = abspath("${path.module}/assets/presignup-hook")
-  docker_build_target  = "package"
+  lifecycle {
+    destroy = false
+  }
+}
 
-  docker_build_args = {
+data "buildkit_context" "presignup_hook" {
+  count = local.presignup_hook_enabled ? 1 : 0
+
+  path = abspath("${path.module}/assets/presignup-hook")
+}
+
+resource "buildkit_artifact" "presignup_hook" {
+  count = local.presignup_hook_enabled ? 1 : 0
+
+  build_context     = abspath("${path.module}/assets/presignup-hook")
+  dockerfile        = "Dockerfile"
+  target            = "package"
+  artifact_src_path = "/tmp/package.zip"
+  artifact_src_type = "zip"
+  artifact_dst_path = "${path.module}/dist/presignup-hook.zip"
+
+  build_args = {
     APP_VERSION                = local.presignup_hook_version
     SERVICE_OPA_POLICY_ENCODED = terraform_data.presignup_hook_policy[0].output
   }
 
-  context = module.presignup_hook_label.context
+  triggers = {
+    context          = data.buildkit_context.presignup_hook[0].digest
+    force_rebuild_id = var.presignup_hook_force_rebuild_id
+  }
 }
 
 resource "aws_cloudwatch_log_group" "presignup_hook" {
@@ -118,13 +137,14 @@ resource "aws_cloudwatch_log_group" "presignup_hook" {
 resource "aws_lambda_function" "presignup_hook" {
   count = local.presignup_hook_enabled ? 1 : 0
 
-  function_name = module.presignup_hook_label.id
-  filename      = module.presignup_hook_code[0].artifact_package_path
-  handler       = "bootstrap"
-  runtime       = "provided.al2023"
-  timeout       = 10
-  role          = aws_iam_role.this[0].arn
-  layers        = []
+  function_name    = module.presignup_hook_label.id
+  filename         = buildkit_artifact.presignup_hook[0].artifact_path
+  source_code_hash = buildkit_artifact.presignup_hook[0].artifact_sha256
+  handler          = "bootstrap"
+  runtime          = "provided.al2023"
+  timeout          = 10
+  role             = aws_iam_role.this[0].arn
+  layers           = []
 
   tracing_config {
     mode = "Active"
@@ -145,7 +165,7 @@ resource "aws_lambda_function" "presignup_hook" {
   tags = module.presignup_hook_label.tags
 
   depends_on = [
-    module.presignup_hook_code,
+    buildkit_artifact.presignup_hook,
     aws_cloudwatch_log_group.presignup_hook,
   ]
 }

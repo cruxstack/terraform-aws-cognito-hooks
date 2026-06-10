@@ -30,6 +30,12 @@ variable "presignup_hook_version" {
   default = "latest"
 }
 
+variable "presignup_hook_force_rebuild_id" {
+  description = "ID to force rebuilding the presignup hook Lambda function source code. Increment this value to trigger a rebuild."
+  type        = string
+  default     = ""
+}
+
 variable "presignup_hook_policy_content" {
   description = "The content of the Open Policy Agent policy."
   type        = string
