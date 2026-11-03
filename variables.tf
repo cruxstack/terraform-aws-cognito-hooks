@@ -1,7 +1,7 @@
 # ================================================================== general ===
 
 variable "service_log_level" {
-  description = "The log level for the service. It must be one of 'debug', 'info', 'warn', 'error', 'panic' or 'fatal'."
+  description = "Log level of the hook Lambdas: 'debug', 'info', 'warn', or 'error'. 'debug' logs every event, including user attributes."
   type        = string
   default     = "info"
 
@@ -11,8 +11,32 @@ variable "service_log_level" {
   }
 }
 
-# ----------------------------------------------------------- presignup_hook ---
+variable "hooks_version" {
+  description = "Git tag of cruxstack/cognito-hooks-go to build for the hook Lambdas. 'latest' builds its default branch, which can include breaking changes."
+  type        = string
+  default     = "v1.0.0"
+  nullable    = false
+}
 
+variable "hooks_force_rebuild_id" {
+  description = "Change this value to force a rebuild of the hooks artifact."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "lambda_architecture" {
+  description = "Instruction set of the hook Lambdas: 'arm64' (Graviton, lower cost) or 'x86_64'."
+  type        = string
+  default     = "arm64"
+
+  validation {
+    condition     = contains(["arm64", "x86_64"], var.lambda_architecture)
+    error_message = "lambda_architecture must be 'arm64' or 'x86_64'."
+  }
+}
+
+# ----------------------------------------------------------- presignup_hook ---
 
 variable "presignup_hook_enabled" {
   description = "Whether or not the presignup hook is enabled."
@@ -20,37 +44,21 @@ variable "presignup_hook_enabled" {
   default     = false
 }
 
-variable "presignup_hook_debug_enabled" {
-  type    = bool
-  default = false
-}
-
-variable "presignup_hook_version" {
-  type    = string
-  default = "latest"
-}
-
-variable "presignup_hook_force_rebuild_id" {
-  description = "ID to force rebuilding the presignup hook Lambda function source code. Increment this value to trigger a rebuild."
-  type        = string
-  default     = ""
-}
-
 variable "presignup_hook_policy_content" {
-  description = "The content of the Open Policy Agent policy."
+  description = "The PreSignUp Rego policy. It must start with 'package cognito_hook_presignup'."
   type        = string
   default     = ""
 }
 
 variable "presignup_hook_email_verification_enabled" {
   type        = bool
-  description = "Toggle to use email verification."
+  description = "Verify the user's email address with SendGrid before the policy runs."
   default     = false
 }
 
 variable "presignup_hook_email_verification_for_trigger_sources" {
   type        = list(string)
-  description = "List of Cognito trigger sources that invoke the email verification service."
+  description = "PreSignUp trigger sources to verify the email address for: SignUp, AdminCreateUser, or ExternalProvider."
   default     = ["SignUp"]
 
   validation {
@@ -59,21 +67,17 @@ variable "presignup_hook_email_verification_for_trigger_sources" {
   }
 }
 
-variable "presignup_hook_email_verification_whitelist" {
+variable "presignup_hook_email_verification_allowlist" {
   type        = list(string)
-  description = "List of email domains that bypass email validation."
+  description = "Email domains that are treated as valid without calling SendGrid."
   default     = []
 }
 
 variable "sendgrid_email_verification_api_key" {
   type        = string
-  description = "The SendGrid API key used to interact with its Email Verification API."
+  description = "SendGrid API key with Email Address Validation access. Required when presignup_hook_email_verification_enabled is true."
   default     = ""
-
-  validation {
-    condition     = !var.presignup_hook_email_verification_enabled || (var.presignup_hook_email_verification_enabled && try(length(var.sendgrid_email_verification_api_key) > 0, false))
-    error_message = "SendGrid Email Verification is enabled but API Key is not set."
-  }
+  sensitive   = true
 }
 
 # ---------------------------------------------------- postconfirmation_hook ---
@@ -84,25 +88,8 @@ variable "postconfirmation_hook_enabled" {
   default     = false
 }
 
-variable "postconfirmation_hook_debug_enabled" {
-  type    = bool
-  default = false
-}
-
-variable "postconfirmation_hook_version" {
-  description = "Version or git ref of the hook source (cognito-hooks-go). The post confirmation hook needs a version that includes `cmd/postconfirmation`."
-  type        = string
-  default     = "latest"
-}
-
-variable "postconfirmation_hook_force_rebuild_id" {
-  description = "ID to force rebuilding the post confirmation hook Lambda function source code. Increment this value to trigger a rebuild."
-  type        = string
-  default     = ""
-}
-
 variable "postconfirmation_hook_policy_content" {
-  description = "Optional Open Policy Agent policy that can exempt users from the password scramble. When empty, every native user's password is scrambled."
+  description = "Optional PostConfirmation Rego policy that can exempt users from the password scramble. It must start with 'package cognito_hook_postconfirmation'. When empty, every native user's password is scrambled."
   type        = string
   default     = ""
 }
