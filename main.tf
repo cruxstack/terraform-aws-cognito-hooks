@@ -289,7 +289,6 @@ resource "aws_lambda_function" "postconfirmation_hook" {
   depends_on = [
     buildkit_artifact.postconfirmation_hook,
     aws_cloudwatch_log_group.postconfirmation_hook,
-    aws_iam_role_policy.postconfirmation_hook,
   ]
 }
 
