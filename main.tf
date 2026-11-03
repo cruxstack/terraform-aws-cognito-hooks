@@ -10,6 +10,10 @@ locals {
   presignup_hook_policy_path    = "./policy.rego"
   presignup_hook_version        = var.presignup_hook_version
   presignup_hook_policy_content = var.presignup_hook_policy_content
+
+  postconfirmation_hook_enabled        = local.enabled && var.postconfirmation_hook_enabled
+  postconfirmation_hook_policy_content = var.postconfirmation_hook_policy_content
+  postconfirmation_hook_policy_path    = local.postconfirmation_hook_policy_content != "" ? "./policy.rego" : ""
 }
 
 data "aws_caller_identity" "current" {
@@ -175,6 +179,125 @@ resource "aws_lambda_permission" "presignup_hook" {
 
   statement_id  = "allow-cognito-trigger"
   function_name = aws_lambda_function.presignup_hook[0].function_name
+  action        = "lambda:InvokeFunction"
+  principal     = "cognito-idp.amazonaws.com"
+  source_arn    = "arn:${local.aws_partition}:cognito-idp:${local.aws_region_name}:${local.aws_account_id}:userpool/*"
+}
+
+# ==================================================== postconfirmation-hook ===
+
+resource "terraform_data" "postconfirmation_hook_policy" {
+  count = local.postconfirmation_hook_enabled ? 1 : 0
+
+  input = base64encode(local.postconfirmation_hook_policy_content)
+
+  lifecycle {
+    precondition {
+      condition     = local.postconfirmation_hook_policy_content == "" || startswith(local.postconfirmation_hook_policy_content, "package cognito_hook_postconfirmation")
+      error_message = "The postconfirmation policy content must include 'package cognito_hook_postconfirmation'."
+    }
+  }
+}
+
+module "postconfirmation_hook_label" {
+  source  = "cloudposse/label/null"
+  version = "0.25.0"
+
+  attributes = ["postconfirmation"]
+  context    = module.cognito_hook_label.context
+}
+
+resource "aws_iam_role_policy" "postconfirmation_hook" {
+  count = local.postconfirmation_hook_enabled ? 1 : 0
+
+  name = "postconfirmation-hook"
+  role = aws_iam_role.this[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = ["cognito-idp:AdminSetUserPassword"]
+      Resource = length(var.postconfirmation_hook_user_pool_arns) > 0 ? var.postconfirmation_hook_user_pool_arns : [
+        "arn:${local.aws_partition}:cognito-idp:${local.aws_region_name}:${local.aws_account_id}:userpool/*",
+      ]
+    }]
+  })
+}
+
+data "buildkit_context" "postconfirmation_hook" {
+  count = local.postconfirmation_hook_enabled ? 1 : 0
+
+  path = abspath("${path.module}/assets/postconfirmation-hook")
+}
+
+resource "buildkit_artifact" "postconfirmation_hook" {
+  count = local.postconfirmation_hook_enabled ? 1 : 0
+
+  build_context     = abspath("${path.module}/assets/postconfirmation-hook")
+  dockerfile        = "Dockerfile"
+  target            = "package"
+  artifact_src_path = "/tmp/package.zip"
+  artifact_src_type = "zip"
+  artifact_dst_path = "${path.module}/dist/postconfirmation-hook.zip"
+
+  build_args = {
+    APP_VERSION                = var.postconfirmation_hook_version
+    SERVICE_OPA_POLICY_ENCODED = local.postconfirmation_hook_policy_content != "" ? terraform_data.postconfirmation_hook_policy[0].output : ""
+  }
+
+  triggers = {
+    context          = data.buildkit_context.postconfirmation_hook[0].digest
+    force_rebuild_id = var.postconfirmation_hook_force_rebuild_id
+  }
+}
+
+resource "aws_cloudwatch_log_group" "postconfirmation_hook" {
+  count = local.postconfirmation_hook_enabled ? 1 : 0
+
+  name              = "/aws/lambda/${module.postconfirmation_hook_label.id}"
+  retention_in_days = 90
+  tags              = module.postconfirmation_hook_label.tags
+}
+
+resource "aws_lambda_function" "postconfirmation_hook" {
+  count = local.postconfirmation_hook_enabled ? 1 : 0
+
+  function_name    = module.postconfirmation_hook_label.id
+  filename         = buildkit_artifact.postconfirmation_hook[0].artifact_path
+  source_code_hash = buildkit_artifact.postconfirmation_hook[0].artifact_sha256
+  handler          = "bootstrap"
+  runtime          = "provided.al2023"
+  timeout          = 5 # cognito waits at most 5 seconds for a trigger
+  role             = aws_iam_role.this[0].arn
+  layers           = []
+
+  tracing_config {
+    mode = "Active"
+  }
+
+  environment {
+    variables = {
+      APP_DEBUG_ENABLED = var.postconfirmation_hook_debug_enabled
+      APP_LOG_LEVEL     = var.service_log_level
+      APP_POLICY_PATH   = local.postconfirmation_hook_policy_path
+    }
+  }
+
+  tags = module.postconfirmation_hook_label.tags
+
+  depends_on = [
+    buildkit_artifact.postconfirmation_hook,
+    aws_cloudwatch_log_group.postconfirmation_hook,
+    aws_iam_role_policy.postconfirmation_hook,
+  ]
+}
+
+resource "aws_lambda_permission" "postconfirmation_hook" {
+  count = local.postconfirmation_hook_enabled ? 1 : 0
+
+  statement_id  = "allow-cognito-trigger"
+  function_name = aws_lambda_function.postconfirmation_hook[0].function_name
   action        = "lambda:InvokeFunction"
   principal     = "cognito-idp.amazonaws.com"
   source_arn    = "arn:${local.aws_partition}:cognito-idp:${local.aws_region_name}:${local.aws_account_id}:userpool/*"

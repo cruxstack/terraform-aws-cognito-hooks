@@ -76,4 +76,39 @@ variable "sendgrid_email_verification_api_key" {
   }
 }
 
+# ---------------------------------------------------- postconfirmation_hook ---
 
+variable "postconfirmation_hook_enabled" {
+  description = "Whether or not the post confirmation hook is enabled. It replaces each newly confirmed native user's password with a random one, so users sign in with passwordless factors only."
+  type        = bool
+  default     = false
+}
+
+variable "postconfirmation_hook_debug_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "postconfirmation_hook_version" {
+  description = "Version or git ref of the hook source (cognito-hooks-go). The post confirmation hook needs a version that includes `cmd/postconfirmation`."
+  type        = string
+  default     = "latest"
+}
+
+variable "postconfirmation_hook_force_rebuild_id" {
+  description = "ID to force rebuilding the post confirmation hook Lambda function source code. Increment this value to trigger a rebuild."
+  type        = string
+  default     = ""
+}
+
+variable "postconfirmation_hook_policy_content" {
+  description = "Optional Open Policy Agent policy that can exempt users from the password scramble. When empty, every native user's password is scrambled."
+  type        = string
+  default     = ""
+}
+
+variable "postconfirmation_hook_user_pool_arns" {
+  description = "ARNs of the user pools where the hook may set passwords. When empty, the hook may set passwords in any user pool in the account and region."
+  type        = list(string)
+  default     = []
+}
