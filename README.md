@@ -91,6 +91,10 @@ The policy is optional. Without one, every native user's password is
 scrambled; with `postconfirmation_hook_policy_content`, it can return
 `skip` for some users, such as an end-to-end test app client.
 
+Cognito doesn't run the trigger for users created with `AdminCreateUser`.
+The hook's [documentation](https://github.com/cruxstack/cognito-hooks-go/blob/v1.0.0/docs/postconfirmation.md)
+covers which users it reaches and the alarms to set up.
+
 ## Inputs
 
 In addition to the variables documented below, this module includes several
