@@ -28,7 +28,7 @@ mock_provider "buildkit" {}
 
 variables {
   name                                 = "test"
-  presignup_hook_policy_content        = "package cognito_hook_presignup\n\nresult := {\"action\": \"allow\"}\n"
+  presignup_hook_policy_content        = "package cognito_hook_presignup\n\nresult := {\"actions\": [\"signup.allow\"]}\n"
   postconfirmation_hook_policy_content = ""
 }
 
@@ -101,7 +101,7 @@ run "both_hooks_on_x86_64" {
     sendgrid_email_verification_api_key                   = "SG.example"
 
     postconfirmation_hook_enabled        = true
-    postconfirmation_hook_policy_content = "package cognito_hook_postconfirmation\n\ndefault result := {\"action\": \"scramble\"}\n"
+    postconfirmation_hook_policy_content = "package cognito_hook_postconfirmation\n\nresult := {\"actions\": [\"password.replace\"]}\n"
     postconfirmation_hook_user_pool_arns = ["arn:aws:cognito-idp:us-east-1:111122223333:userpool/us-east-1_EXAMPLE"]
 
     lambda_architecture = "x86_64"
@@ -158,7 +158,7 @@ run "postconfirmation_without_policy" {
       buildkit_artifact.hooks[0].build_args.POSTCONFIRMATION_POLICY_ENCODED == "",
       aws_lambda_function.postconfirmation_hook[0].environment[0].variables.APP_POSTCONFIRMATION_POLICY_PATH == "",
     ])
-    error_message = "without a policy, the postconfirmation lambda should scramble every native user"
+    error_message = "without a policy, the postconfirmation lambda should replace every native user's password"
   }
 
   assert {

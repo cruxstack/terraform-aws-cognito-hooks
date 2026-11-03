@@ -15,12 +15,14 @@ both policies. Each enabled hook gets its own Lambda function and log group.
 
 ## Features
 
-- PreSignUp hook with a Rego policy that allows or denies sign-ups and sets
-  `autoConfirmUser`, `autoVerifyEmail`, and `autoVerifyPhone`, with optional
-  SendGrid email verification as policy input
-- PostConfirmation hook that scrambles each newly confirmed native user's
-  password, so users sign in with passwordless factors only, with an
-  optional policy to exempt users
+- PreSignUp hook whose Rego policy returns actions that allow or deny
+  sign-ups and set Cognito's auto-confirm and auto-verify flags
+  (`signup.allow`, `signup.deny`, `user.confirm`, `email.verify`,
+  `phone.verify`), with optional SendGrid email verification as policy input
+- PostConfirmation hook that replaces each confirmed native user's password
+  with a random one (`password.replace`), so users sign in with
+  passwordless factors only, with an optional policy to keep some passwords
+  (`password.skip`)
 - `arm64` (Graviton) Lambdas by default, built from a pinned version
 - CloudWatch log groups with 90-day retention, X-Ray tracing, and naming and
   tags via `cloudposse/label/null`
@@ -52,12 +54,19 @@ package cognito_hook_presignup
 
 import rego.v1
 
-default result := {"action": "deny", "reason": "Sign-up is limited to example.com addresses."}
+result := {"actions": actions}
 
-result := {"action": "allow"} if endswith(input.userAttributes.email, "@example.com")
+actions contains "signup.allow"
+
+# a denial wins over the allow
+actions contains {"action": "signup.deny", "reason": "Sign-up is limited to example.com addresses."} if {
+	not endswith(input.userAttributes.email, "@example.com")
+}
 ```
 
-The policy must start with its `package` line. See the hook's
+The policy returns a list of
+[actions](https://github.com/cruxstack/cognito-hooks-go/blob/v1.0.0/docs/policies.md#actions)
+and must start with its `package` line. See the hook's
 [policy documentation](https://github.com/cruxstack/cognito-hooks-go/blob/v1.0.0/docs/policies.md)
 and [example policies](https://github.com/cruxstack/cognito-hooks-go/tree/v1.0.0/examples/policies).
 
@@ -88,8 +97,8 @@ resource "aws_cognito_user_pool" "this" {
 ```
 
 The policy is optional. Without one, every native user's password is
-scrambled; with `postconfirmation_hook_policy_content`, it can return
-`skip` for some users, such as an end-to-end test app client.
+replaced; with `postconfirmation_hook_policy_content`, it can return
+`password.skip` for some users, such as an end-to-end test app client.
 
 Cognito doesn't run the trigger for users created with `AdminCreateUser`.
 The hook's [documentation](https://github.com/cruxstack/cognito-hooks-go/blob/v1.0.0/docs/postconfirmation.md)
@@ -130,7 +139,9 @@ for more details on these variables.
 v2 runs [cognito-hooks-go v1](https://github.com/cruxstack/cognito-hooks-go/blob/v1.0.0/docs/upgrading-to-v1.md),
 which builds one binary for every hook and fails closed: a PreSignUp policy
 that fails to evaluate now rejects the sign-up instead of allowing it.
-Check your policies against its upgrade guide.
+Policies now return a list of actions (`{"actions": ["signup.allow"]}`
+instead of `{"action": "allow"}`); its upgrade guide shows how to convert
+them.
 
 | v1                                            | v2                                                              |
 | --------------------------------------------- | --------------------------------------------------------------- |

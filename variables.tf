@@ -89,7 +89,7 @@ variable "postconfirmation_hook_enabled" {
 }
 
 variable "postconfirmation_hook_policy_content" {
-  description = "Optional PostConfirmation Rego policy that can exempt users from the password scramble. It must start with 'package cognito_hook_postconfirmation'. When empty, every native user's password is scrambled."
+  description = "Optional PostConfirmation Rego policy that returns the actions for each user, such as password.skip to keep a password. It must start with 'package cognito_hook_postconfirmation'. When empty, every native user's password is replaced."
   type        = string
   default     = ""
 }
