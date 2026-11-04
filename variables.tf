@@ -36,6 +36,17 @@ variable "lambda_architecture" {
   }
 }
 
+variable "lambda_memory_size" {
+  description = "Memory of each hook Lambda, in MB, from 128 to 10240. Lambda allocates CPU in proportion to memory, so more memory can shorten cold starts and the time Cognito waits for a hook."
+  type        = number
+  default     = 128
+
+  validation {
+    condition     = var.lambda_memory_size >= 128 && var.lambda_memory_size <= 10240 && floor(var.lambda_memory_size) == var.lambda_memory_size
+    error_message = "lambda_memory_size must be a whole number of MB from 128 to 10240."
+  }
+}
+
 # ----------------------------------------------------------- presignup_hook ---
 
 variable "presignup_hook_enabled" {

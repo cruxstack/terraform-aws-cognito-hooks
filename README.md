@@ -191,6 +191,7 @@ for more details on these variables.
 | `hooks_version`                                         | git tag of `cognito-hooks-go` to build; `latest` builds its default branch  |    `string`    |  `"v1.0.0"`  |    no    |
 | `hooks_force_rebuild_id`                                | change to force a rebuild of the artifact                                   |    `string`    |     `""`     |    no    |
 | `lambda_architecture`                                   | `arm64` or `x86_64`                                                          |    `string`    |  `"arm64"`   |    no    |
+| `lambda_memory_size`                                    | memory of each hook Lambda in MB (128 to 10240); CPU scales with it         |    `number`    |     `128`    |    no    |
 | `service_log_level`                                     | log level: `debug`, `info`, `warn`, `error`                                 |    `string`    |   `"info"`   |    no    |
 | `presignup_hook_enabled`                                | whether the PreSignUp hook is deployed                                      |     `bool`     |    `false`   |    no    |
 | `presignup_hook_policy_content`                         | Rego policy; must start with `package cognito_hook_presignup`               |    `string`    |     `""`     |  when enabled |
