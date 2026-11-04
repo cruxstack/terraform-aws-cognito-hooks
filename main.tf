@@ -14,6 +14,10 @@ locals {
   preauthentication_hook_enabled        = local.enabled && var.preauthentication_hook_enabled
   preauthentication_hook_policy_content = var.preauthentication_hook_policy_content
 
+  # password rotation is an opt-in feature of the preauthentication hook; the
+  # table, its iam permissions, and its settings exist only when it is on
+  password_rotation_enabled = local.preauthentication_hook_enabled && var.preauthentication_hook_password_rotation_enabled
+
   # every lambda runs the same go binary, packaged with every policy
   hooks_enabled = local.presignup_hook_enabled || local.postconfirmation_hook_enabled || local.preauthentication_hook_enabled
   hooks_goarch  = var.lambda_architecture == "arm64" ? "arm64" : "amd64"
@@ -30,13 +34,13 @@ locals {
     false,
   )
 
-  # the preauthentication hook's records of when it replaced each password;
+  # password rotation's records of when the hooks replaced each password;
   # the postconfirmation hook records its replacements there too
-  rotation_table_created = local.preauthentication_hook_enabled && var.preauthentication_hook_rotation_table_name == ""
-  rotation_table_name = !local.preauthentication_hook_enabled ? "" : (
+  rotation_table_created = local.password_rotation_enabled && var.preauthentication_hook_rotation_table_name == ""
+  rotation_table_name = !local.password_rotation_enabled ? "" : (
     local.rotation_table_created ? aws_dynamodb_table.rotations[0].name : var.preauthentication_hook_rotation_table_name
   )
-  rotation_table_arn = !local.preauthentication_hook_enabled ? "" : (
+  rotation_table_arn = !local.password_rotation_enabled ? "" : (
     "arn:${local.aws_partition}:dynamodb:${local.aws_region_name}:${local.aws_account_id}:table/${local.rotation_table_name}"
   )
 
@@ -307,15 +311,16 @@ resource "aws_lambda_function" "postconfirmation_hook" {
   }
 
   environment {
-    # with the preauthentication hook, record each replacement in its table so
-    # it doesn't replace the password again at the user's first sign-in
+    # with password rotation, record each replacement in its table so the
+    # preauthentication hook doesn't replace the password again at the user's
+    # first sign-in
     variables = merge(
       {
         APP_LOG_LEVEL                    = var.service_log_level
         APP_POSTCONFIRMATION_ENABLED     = "true"
         APP_POSTCONFIRMATION_POLICY_PATH = local.postconfirmation_hook_policy_path
       },
-      local.rotation_table_name == "" ? {} : { APP_POSTCONFIRMATION_ROTATION_TABLE = local.rotation_table_name },
+      local.password_rotation_enabled ? { APP_POSTCONFIRMATION_ROTATION_TABLE = local.rotation_table_name } : {},
     )
   }
 
@@ -355,7 +360,8 @@ module "rotation_table_label" {
   context    = module.cognito_hook_label.context
 }
 
-# when the hooks last replaced each user's password, keyed by the user's sub
+# password rotation's record of when the hooks last replaced each user's
+# password, keyed by the user's sub
 resource "aws_dynamodb_table" "rotations" {
   count = local.rotation_table_created ? 1 : 0
 
@@ -379,8 +385,9 @@ resource "aws_dynamodb_table" "rotations" {
   tags = module.rotation_table_label.tags
 }
 
+# only password rotation calls aws, so the hook has no permissions without it
 resource "aws_iam_role_policy" "preauthentication_hook" {
-  count = local.preauthentication_hook_enabled ? 1 : 0
+  count = local.password_rotation_enabled ? 1 : 0
 
   name = "preauthentication-hook"
   role = aws_iam_role.this[0].id
@@ -430,13 +437,18 @@ resource "aws_lambda_function" "preauthentication_hook" {
   }
 
   environment {
-    variables = {
-      APP_LOG_LEVEL                        = var.service_log_level
-      APP_PREAUTHENTICATION_ENABLED        = "true"
-      APP_PREAUTHENTICATION_POLICY_PATH    = local.preauthentication_hook_policy_path
-      APP_PREAUTHENTICATION_ROTATE_BEFORE  = var.preauthentication_hook_rotate_before
-      APP_PREAUTHENTICATION_ROTATION_TABLE = local.rotation_table_name
-    }
+    variables = merge(
+      {
+        APP_LOG_LEVEL                                   = var.service_log_level
+        APP_PREAUTHENTICATION_ENABLED                   = "true"
+        APP_PREAUTHENTICATION_POLICY_PATH               = local.preauthentication_hook_policy_path
+        APP_PREAUTHENTICATION_PASSWORD_ROTATION_ENABLED = tostring(local.password_rotation_enabled)
+      },
+      local.password_rotation_enabled ? {
+        APP_PREAUTHENTICATION_ROTATE_BEFORE  = var.preauthentication_hook_rotate_before
+        APP_PREAUTHENTICATION_ROTATION_TABLE = local.rotation_table_name
+      } : {},
+    )
   }
 
   tags = module.preauthentication_hook_label.tags
@@ -449,8 +461,8 @@ resource "aws_lambda_function" "preauthentication_hook" {
       error_message = "The preauthentication hook needs hooks_version v1.1.0 or later of cognito-hooks-go."
     }
     precondition {
-      condition     = var.preauthentication_hook_rotate_before != ""
-      error_message = "preauthentication_hook_rotate_before is required when preauthentication_hook_enabled is true."
+      condition     = !local.password_rotation_enabled || var.preauthentication_hook_rotate_before != ""
+      error_message = "preauthentication_hook_rotate_before is required when preauthentication_hook_password_rotation_enabled is true."
     }
   }
 

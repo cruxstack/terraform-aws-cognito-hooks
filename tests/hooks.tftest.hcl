@@ -238,13 +238,55 @@ run "rejects_unknown_architectures" {
   expect_failures = [var.lambda_architecture]
 }
 
+# password rotation is off by default: the hook gets no table, no aws
+# permissions, and no rotation settings, even when they are given
+run "preauthentication_without_password_rotation" {
+  command = plan
+
+  variables {
+    hooks_version                              = "v1.1.0"
+    preauthentication_hook_enabled             = true
+    preauthentication_hook_rotate_before       = "2026-11-01T00:00:00Z"
+    preauthentication_hook_rotation_table_name = "existing-rotations"
+
+    postconfirmation_hook_enabled = true
+  }
+
+  assert {
+    condition = alltrue([
+      length(aws_lambda_function.preauthentication_hook) == 1,
+      length(aws_lambda_permission.preauthentication_hook) == 1,
+      length(aws_dynamodb_table.rotations) == 0,
+      length(aws_iam_role_policy.preauthentication_hook) == 0,
+      output.preauthentication_hook_rotation_table_name == "",
+    ])
+    error_message = "without password rotation, the hook should get no rotation table or aws permissions"
+  }
+
+  assert {
+    condition = aws_lambda_function.preauthentication_hook[0].environment[0].variables == tomap({
+      APP_LOG_LEVEL                                   = "info"
+      APP_PREAUTHENTICATION_ENABLED                   = "true"
+      APP_PREAUTHENTICATION_POLICY_PATH               = ""
+      APP_PREAUTHENTICATION_PASSWORD_ROTATION_ENABLED = "false"
+    })
+    error_message = "without password rotation, the hook should get no rotation settings"
+  }
+
+  assert {
+    condition     = !contains(keys(aws_lambda_function.postconfirmation_hook[0].environment[0].variables), "APP_POSTCONFIRMATION_ROTATION_TABLE")
+    error_message = "without password rotation, the postconfirmation hook has no table to record replacements in"
+  }
+}
+
 run "preauthentication_creates_its_table" {
   command = plan
 
   variables {
-    hooks_version                        = "v1.1.0"
-    preauthentication_hook_enabled       = true
-    preauthentication_hook_rotate_before = "2026-11-01T00:00:00Z"
+    hooks_version                                    = "v1.1.0"
+    preauthentication_hook_enabled                   = true
+    preauthentication_hook_password_rotation_enabled = true
+    preauthentication_hook_rotate_before             = "2026-11-01T00:00:00Z"
   }
 
   assert {
@@ -288,11 +330,12 @@ run "preauthentication_creates_its_table" {
 
   assert {
     condition = aws_lambda_function.preauthentication_hook[0].environment[0].variables == tomap({
-      APP_LOG_LEVEL                        = "info"
-      APP_PREAUTHENTICATION_ENABLED        = "true"
-      APP_PREAUTHENTICATION_POLICY_PATH    = ""
-      APP_PREAUTHENTICATION_ROTATE_BEFORE  = "2026-11-01T00:00:00Z"
-      APP_PREAUTHENTICATION_ROTATION_TABLE = "test-hooks-password-rotations"
+      APP_LOG_LEVEL                                   = "info"
+      APP_PREAUTHENTICATION_ENABLED                   = "true"
+      APP_PREAUTHENTICATION_POLICY_PATH               = ""
+      APP_PREAUTHENTICATION_PASSWORD_ROTATION_ENABLED = "true"
+      APP_PREAUTHENTICATION_ROTATE_BEFORE             = "2026-11-01T00:00:00Z"
+      APP_PREAUTHENTICATION_ROTATION_TABLE            = "test-hooks-password-rotations"
     })
     error_message = "the preauthentication environment should follow the cognito-hooks-go v1.1 contract"
   }
@@ -318,12 +361,13 @@ run "preauthentication_with_an_existing_table" {
   command = plan
 
   variables {
-    hooks_version                              = "v1.1.0"
-    preauthentication_hook_enabled             = true
-    preauthentication_hook_rotate_before       = "2026-10-31T20:00:00-04:00"
-    preauthentication_hook_rotation_table_name = "existing-rotations"
-    preauthentication_hook_user_pool_arns      = ["arn:aws:cognito-idp:us-east-1:111122223333:userpool/us-east-1_EXAMPLE"]
-    preauthentication_hook_policy_content      = "package cognito_hook_preauthentication\n\nresult := {\"actions\": []}\n"
+    hooks_version                                    = "v1.1.0"
+    preauthentication_hook_enabled                   = true
+    preauthentication_hook_password_rotation_enabled = true
+    preauthentication_hook_rotate_before             = "2026-10-31T20:00:00-04:00"
+    preauthentication_hook_rotation_table_name       = "existing-rotations"
+    preauthentication_hook_user_pool_arns            = ["arn:aws:cognito-idp:us-east-1:111122223333:userpool/us-east-1_EXAMPLE"]
+    preauthentication_hook_policy_content            = "package cognito_hook_preauthentication\n\nresult := {\"actions\": []}\n"
 
     postconfirmation_hook_enabled = true
   }
@@ -365,9 +409,8 @@ run "preauthentication_with_an_untagged_version" {
   command = plan
 
   variables {
-    hooks_version                        = "latest"
-    preauthentication_hook_enabled       = true
-    preauthentication_hook_rotate_before = "2026-11-01T00:00:00Z"
+    hooks_version                  = "latest"
+    preauthentication_hook_enabled = true
   }
 
   assert {
@@ -380,20 +423,20 @@ run "preauthentication_needs_hooks_v1_1" {
   command = plan
 
   variables {
-    hooks_version                        = "v1.0.0"
-    preauthentication_hook_enabled       = true
-    preauthentication_hook_rotate_before = "2026-11-01T00:00:00Z"
+    hooks_version                  = "v1.0.0"
+    preauthentication_hook_enabled = true
   }
 
   expect_failures = [aws_lambda_function.preauthentication_hook]
 }
 
-run "preauthentication_needs_a_cutoff" {
+run "password_rotation_needs_a_cutoff" {
   command = plan
 
   variables {
-    hooks_version                  = "v1.1.0"
-    preauthentication_hook_enabled = true
+    hooks_version                                    = "v1.1.0"
+    preauthentication_hook_enabled                   = true
+    preauthentication_hook_password_rotation_enabled = true
   }
 
   expect_failures = [aws_lambda_function.preauthentication_hook]

@@ -103,7 +103,13 @@ variable "postconfirmation_hook_user_pool_arns" {
 # --------------------------------------------------- preauthentication_hook ---
 
 variable "preauthentication_hook_enabled" {
-  description = "Whether or not the pre authentication hook is enabled. When a native user signs in, it replaces a password that the hooks haven't replaced since preauthentication_hook_rotate_before with a random one, so passwords exposed before then stop working. Needs hooks_version v1.1.0 or later."
+  description = "Whether or not the pre authentication hook is enabled. It runs at each sign-in and carries out the features that are enabled, such as preauthentication_hook_password_rotation_enabled; with none, it lets every sign-in continue. Needs hooks_version v1.1.0 or later."
+  type        = bool
+  default     = false
+}
+
+variable "preauthentication_hook_password_rotation_enabled" {
+  description = "Whether or not the pre authentication hook rotates passwords. When a native user signs in, it replaces a password that the hooks haven't replaced since preauthentication_hook_rotate_before with a random one, so passwords exposed before then stop working. Creates the rotation table and grants the Cognito and DynamoDB permissions it needs."
   type        = bool
   default     = false
 }
@@ -115,13 +121,13 @@ variable "preauthentication_hook_policy_content" {
 }
 
 variable "preauthentication_hook_user_pool_arns" {
-  description = "ARNs of the user pools where the hook may look up users and set passwords. When empty, the hook may do so in any user pool in the account and region."
+  description = "ARNs of the user pools where password rotation may look up users and set passwords. When empty, it may do so in any user pool in the account and region."
   type        = list(string)
   default     = []
 }
 
 variable "preauthentication_hook_rotate_before" {
-  description = "The cutoff, an RFC 3339 timestamp that has passed, such as '2026-11-01T00:00:00Z'. A password the hooks haven't replaced since then is replaced at the user's next sign-in, so moving it later replaces every password once more. Required when the hook is enabled."
+  description = "Password rotation's cutoff, an RFC 3339 timestamp that has passed, such as '2026-11-01T00:00:00Z'. A password the hooks haven't replaced since then is replaced at the user's next sign-in, so moving it later replaces every password once more. Required when password rotation is enabled."
   type        = string
   default     = ""
   nullable    = false
@@ -140,7 +146,7 @@ variable "preauthentication_hook_rotate_before" {
 }
 
 variable "preauthentication_hook_rotation_table_name" {
-  description = "Name of an existing DynamoDB table, in the same account and region, for the hook's records of when it replaced each password. Its partition key must be 'sub', a string. When empty, the module creates the table."
+  description = "Name of an existing DynamoDB table, in the same account and region, for password rotation's records of when the hooks replaced each password. Its partition key must be 'sub', a string. When empty, the module creates the table when password rotation is enabled."
   type        = string
   default     = ""
   nullable    = false
