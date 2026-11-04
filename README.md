@@ -9,9 +9,10 @@ policies you write.
 | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | [PreSignUp](https://github.com/cruxstack/cognito-hooks-go/blob/v1.0.0/docs/presignup.md)                           | Allows or denies each sign-up and sets Cognito's auto-confirm and auto-verify flags. Can check the address with SendGrid first. |
 | [PostConfirmation](https://github.com/cruxstack/cognito-hooks-go/blob/v1.0.0/docs/postconfirmation.md)             | Replaces each newly confirmed user's password with a random one, for passwordless-only user pools. |
+| [PreAuthentication](https://github.com/cruxstack/cognito-hooks-go/blob/v1.1.0/docs/preauthentication.md)           | At sign-in, replaces a password set before a cutoff time with a random one, so exposed passwords stop working. |
 
 The module builds the function once, at `hooks_version`, and packages it with
-both policies. Each enabled hook gets its own Lambda function and log group.
+every policy. Each enabled hook gets its own Lambda function and log group.
 
 ## Features
 
@@ -23,6 +24,9 @@ both policies. Each enabled hook gets its own Lambda function and log group.
   with a random one (`password.replace`), so users sign in with
   passwordless factors only, with an optional policy to keep some passwords
   (`password.skip`)
+- PreAuthentication hook that replaces each native user's password at their
+  first sign-in after a cutoff, recorded in a DynamoDB table the module
+  creates, with an optional policy to keep some passwords
 - `arm64` (Graviton) Lambdas by default, built from a pinned version
 - CloudWatch log groups with 90-day retention, X-Ray tracing, and naming and
   tags via `cloudposse/label/null`
@@ -104,6 +108,66 @@ Cognito doesn't run the trigger for users created with `AdminCreateUser`.
 The hook's [documentation](https://github.com/cruxstack/cognito-hooks-go/blob/v1.0.0/docs/postconfirmation.md)
 covers which users it reaches and the alarms to set up.
 
+### PreAuthentication
+
+When a native, confirmed user signs in, the PreAuthentication hook replaces
+their password with a random one unless the hooks have replaced it since
+`preauthentication_hook_rotate_before`. A password exposed before then stops
+working, while users who sign in with a passwordless factor notice nothing.
+Each user's password is replaced once, at their first sign-in after the
+cutoff, and moving the cutoff later replaces every password once more.
+
+The hook needs `hooks_version` v1.1.0 or later of cognito-hooks-go, and the
+same passwordless first factor as PostConfirmation.
+
+```hcl
+module "cognito_hooks" {
+  source  = "cruxstack/cognito-hooks/aws"
+  version = "~> 2.1"
+
+  hooks_version = "v1.1.0"
+
+  preauthentication_hook_enabled        = true
+  preauthentication_hook_rotate_before  = "2026-11-01T00:00:00Z"
+  preauthentication_hook_user_pool_arns = ["arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_EXAMPLE"]
+}
+
+resource "aws_cognito_user_pool" "this" {
+  name = "my-user-pool"
+
+  lambda_config {
+    pre_authentication = module.cognito_hooks.preauthentication_hook_lambda_fn_arn
+  }
+}
+```
+
+- **Rotation table.** The hook records when it replaced each password in a
+  DynamoDB table: on-demand, keyed by `sub`, encrypted with the AWS managed
+  key, with point-in-time recovery. The module creates it, or uses the table
+  in `preauthentication_hook_rotation_table_name`. When the
+  PostConfirmation hook is enabled too, it records its replacements in the
+  same table, so a newly confirmed user doesn't get another new password at
+  their first sign-in. Disabling the hook destroys a table the module
+  created, and every password is replaced once more if you enable it again.
+- **IAM.** The Lambda role gets `cognito-idp:AdminGetUser` and
+  `cognito-idp:AdminSetUserPassword` on the pools in
+  `preauthentication_hook_user_pool_arns` (every pool in the account and
+  region when the list is empty), and `dynamodb:GetItem` and
+  `dynamodb:PutItem` on the table.
+- **Policy.** `preauthentication_hook_policy_content` can return
+  `password.skip` for some users, such as end-to-end test accounts. Match
+  them by `sub` or username, never by app client ID: a client without a
+  secret has a public ID, so anyone could sign in through it and keep a
+  leaked password working.
+- **Failures.** The hook rejects a sign-in rather than let Cognito check an
+  old password, for example when `AdminSetUserPassword` is throttled.
+
+Whether the new password applies to the sign-in that triggered the
+replacement, or only to the next one, hasn't been verified. The hook's
+[documentation](https://github.com/cruxstack/cognito-hooks-go/blob/v1.1.0/docs/preauthentication.md)
+describes how to test it in a test user pool, and covers failure handling,
+quotas, and the alarms to set up.
+
 ## Inputs
 
 In addition to the variables documented below, this module includes several
@@ -126,6 +190,11 @@ for more details on these variables.
 | `postconfirmation_hook_enabled`                         | whether the PostConfirmation hook is deployed                               |     `bool`     |   `false`    |    no    |
 | `postconfirmation_hook_policy_content`                  | optional Rego policy that can exempt users                                  |    `string`    |     `""`     |    no    |
 | `postconfirmation_hook_user_pool_arns`                  | pools the hook may set passwords in; empty means all                        | `list(string)` |     `[]`     |    no    |
+| `preauthentication_hook_enabled`                        | whether the PreAuthentication hook is deployed; needs `hooks_version` v1.1.0 or later | `bool` |  `false`     |    no    |
+| `preauthentication_hook_rotate_before`                  | the cutoff, an RFC 3339 timestamp that has passed; older passwords are replaced at sign-in | `string` | `""`  | when enabled |
+| `preauthentication_hook_policy_content`                 | optional Rego policy that can exempt users                                  |    `string`    |     `""`     |    no    |
+| `preauthentication_hook_user_pool_arns`                 | pools the hook may look users up and set passwords in; empty means all      | `list(string)` |     `[]`     |    no    |
+| `preauthentication_hook_rotation_table_name`            | existing DynamoDB table (partition key `sub`, a string) for the hook's records; empty creates one | `string` | `""` | no |
 
 ## Outputs
 
@@ -133,6 +202,8 @@ for more details on these variables.
 | ------------------------------------- | ------------------------------------------------------------------------------- |
 | `presignup_hook_lambda_fn_arn`        | the ARN of the PreSignUp Lambda function, or an empty string if disabled        |
 | `postconfirmation_hook_lambda_fn_arn` | the ARN of the PostConfirmation Lambda function, or an empty string if disabled |
+| `preauthentication_hook_lambda_fn_arn` | the ARN of the PreAuthentication Lambda function, or an empty string if disabled |
+| `preauthentication_hook_rotation_table_name` | the name of the PreAuthentication hook's rotation table, or an empty string if disabled |
 
 ## Upgrading to v2
 
