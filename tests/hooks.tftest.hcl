@@ -67,8 +67,9 @@ run "presignup_only" {
       aws_lambda_function.presignup_hook[0].handler == "bootstrap",
       aws_lambda_function.presignup_hook[0].architectures[0] == "arm64",
       aws_lambda_function.presignup_hook[0].timeout == 5,
+      aws_lambda_function.presignup_hook[0].memory_size == 128,
     ])
-    error_message = "the presignup lambda should run the go binary on arm64 with cognito's 5 second limit"
+    error_message = "the presignup lambda should run the go binary on arm64 with 128 MB and cognito's 5 second limit"
   }
 
   assert {
@@ -236,6 +237,38 @@ run "rejects_unknown_architectures" {
   }
 
   expect_failures = [var.lambda_architecture]
+}
+
+run "lambda_memory_size_applies_to_every_hook" {
+  command = plan
+
+  variables {
+    hooks_version                  = "v1.1.0"
+    presignup_hook_enabled         = true
+    postconfirmation_hook_enabled  = true
+    preauthentication_hook_enabled = true
+    lambda_memory_size             = 256
+  }
+
+  assert {
+    condition = alltrue([
+      aws_lambda_function.presignup_hook[0].memory_size == 256,
+      aws_lambda_function.postconfirmation_hook[0].memory_size == 256,
+      aws_lambda_function.preauthentication_hook[0].memory_size == 256,
+    ])
+    error_message = "every hook lambda should get lambda_memory_size"
+  }
+}
+
+run "rejects_memory_sizes_outside_lambda_limits" {
+  command = plan
+
+  variables {
+    presignup_hook_enabled = true
+    lambda_memory_size     = 64
+  }
+
+  expect_failures = [var.lambda_memory_size]
 }
 
 # password rotation is off by default: the hook gets no table, no aws

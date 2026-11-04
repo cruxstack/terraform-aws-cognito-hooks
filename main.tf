@@ -220,6 +220,7 @@ resource "aws_lambda_function" "presignup_hook" {
   runtime          = "provided.al2023"
   architectures    = [var.lambda_architecture]
   timeout          = local.hooks_timeout
+  memory_size      = var.lambda_memory_size
   role             = aws_iam_role.this[0].arn
   layers           = []
 
@@ -303,6 +304,7 @@ resource "aws_lambda_function" "postconfirmation_hook" {
   runtime          = "provided.al2023"
   architectures    = [var.lambda_architecture]
   timeout          = local.hooks_timeout
+  memory_size      = var.lambda_memory_size
   role             = aws_iam_role.this[0].arn
   layers           = []
 
@@ -429,6 +431,7 @@ resource "aws_lambda_function" "preauthentication_hook" {
   runtime          = "provided.al2023"
   architectures    = [var.lambda_architecture]
   timeout          = local.hooks_timeout
+  memory_size      = var.lambda_memory_size
   role             = aws_iam_role.this[0].arn
   layers           = []
 
