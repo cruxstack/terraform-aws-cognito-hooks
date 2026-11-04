@@ -1,6 +1,6 @@
 # Builds the hooks function (cruxstack/cognito-hooks-go) for AWS Lambda
-# (provided.al2023) and packages it with the PreSignUp and PostConfirmation
-# policies.
+# (provided.al2023) and packages it with the PreSignUp, PostConfirmation, and
+# PreAuthentication policies.
 
 # --------------------------------------------------------------------- base ---
 
@@ -26,8 +26,10 @@ RUN go build -trimpath -tags lambda.norpc -ldflags "-s -w -X main.version=${APP_
 # a hook without a policy gets no file
 ARG PRESIGNUP_POLICY_ENCODED=""
 ARG POSTCONFIRMATION_POLICY_ENCODED=""
+ARG PREAUTHENTICATION_POLICY_ENCODED=""
 RUN if [ -n "$PRESIGNUP_POLICY_ENCODED" ]; then echo "$PRESIGNUP_POLICY_ENCODED" | base64 -d > dist/presignup.rego; fi \
-    && if [ -n "$POSTCONFIRMATION_POLICY_ENCODED" ]; then echo "$POSTCONFIRMATION_POLICY_ENCODED" | base64 -d > dist/postconfirmation.rego; fi
+    && if [ -n "$POSTCONFIRMATION_POLICY_ENCODED" ]; then echo "$POSTCONFIRMATION_POLICY_ENCODED" | base64 -d > dist/postconfirmation.rego; fi \
+    && if [ -n "$PREAUTHENTICATION_POLICY_ENCODED" ]; then echo "$PREAUTHENTICATION_POLICY_ENCODED" | base64 -d > dist/preauthentication.rego; fi
 
 # ------------------------------------------------------------------ package ---
 
